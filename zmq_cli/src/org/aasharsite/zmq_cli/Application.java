@@ -12,12 +12,17 @@ import java.io.InputStreamReader;
 
 public class Application {
 	private static final Logger log = LoggerFactory.getLogger(Application.class);
-	static final int jmqPort = 8076; // TODO: Configurable
 	final static ZContext zCtx = new ZContext(1);
 	final static Socket socket = zCtx.createSocket(ZMQ.REQ);
 	
 	public static void main(String[] args) throws IOException {
-		socket.connect("tcp://localhost:8076");
+		if (args.length != 1) {
+			System.err.println("Syntax: zmq_cli <jmqUrl>");
+		}
+
+        log.info("JMQ socket: " + args[0]);
+
+        socket.connect(args[0]);
 
         BufferedReader br = null;
 
@@ -35,6 +40,7 @@ public class Application {
             } else if ("HELP".equals(input.toUpperCase())) {
                 System.out.println("{\"cmd\":\"subscribe\", \"symbols\":(\"aapl\",\"ibm\")}");
                 System.out.println("{\"cmd\":\"unsubscribe\", \"symbols\":(\"aapl\",\"ibm\")}");
+                System.out.println("{\"cmd\":\"status\"}");
                 continue;
             }
 
@@ -42,7 +48,7 @@ public class Application {
 
             socket.send(input.getBytes(ZMQ.CHARSET), 0);
             byte[] reply = socket.recv(0);
-            System.out.println("Received " + new String(reply, ZMQ.CHARSET));
+            System.out.println("Response: " + new String(reply, ZMQ.CHARSET));
         }
 	}
 }

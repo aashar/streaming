@@ -18,8 +18,8 @@ public class MarketDataStreamSourceTask extends SourceTask {
 	private static final Logger log = LoggerFactory.getLogger(MarketDataStreamSourceTask.class);
 	Map<String, String> sourcePartition;
 
-	MarketDataFeed sc;
-	private String topic;
+	MarketDataFeed feed;
+	private String kTopic;
 
 	@Override
 	public String version() {
@@ -28,26 +28,26 @@ public class MarketDataStreamSourceTask extends SourceTask {
 
 	@Override
 	public void start(Map<String, String> props) {
-		log.debug("start ...");
 		String wsUri = props.get(MarketDataStreamSourceConnector.URI_CONFIG);
 		String subSyms = props.get(MarketDataStreamSourceConnector.SUB_SYMS_CONFIG);
-		topic = props.get(MarketDataStreamSourceConnector.TOPIC_CONFIG);
+		kTopic = props.get(MarketDataStreamSourceConnector.TOPIC_CONFIG);
 		String queueSizeString = props.get(MarketDataStreamSourceConnector.QUEUE_SIZE_CONFIG);
 		String zmqPort = props.get(MarketDataStreamSourceConnector.ZMQ_PORT_CONFIG);
+		log.trace("starting market data connect source for topic " + kTopic);
  
 		try {
-			sc = new SocketIOClient(wsUri, Integer.parseInt(zmqPort), Integer.parseInt(queueSizeString), subSyms);
-			sc.start();
-			while (!sc.feedActiveStatus()) {
-				log.debug("waiting for socket connection");
+			feed = new SocketIOClient(wsUri, Integer.parseInt(zmqPort), Integer.parseInt(queueSizeString), subSyms);
+			feed.connect();
+			while (!feed.feedActiveStatus()) {
+				log.trace("waiting for socket connection");
 				Thread.sleep(1000);
 			}
-			log.debug("start complete");
 		} catch (Exception e) {
-			sc = null;
+			feed = null;
             throw new ConnectException("Error in creating socket", e);
 		}
 		sourcePartition = Collections.singletonMap(MarketDataStreamSourceConnector.URI_CONFIG, wsUri);
+		log.info("started market data connect source for topic " + kTopic);
 	}
 
 	@Override
@@ -55,29 +55,32 @@ public class MarketDataStreamSourceTask extends SourceTask {
 		Map<String, Object> sourceOffset = Collections.singletonMap("position", null);
 	    ArrayList<SourceRecord> records = new ArrayList<>();
 
-	    sc.poll()
+	    feed.poll()
 	    	.stream()
 	    	.forEach(msg -> {
 	    		String key = "";
 	    		try {
 					JSONObject obj = new JSONObject(msg);
 					key = obj.getString("symbol");
-				} catch (JSONException e) { }
+				} catch (JSONException e) {
+					// Ignoring non-JSON messages
+				}
+
 	    		records.add(new SourceRecord(sourcePartition, sourceOffset,
-	    				topic, Schema.STRING_SCHEMA, key, Schema.STRING_SCHEMA, msg));
+	    				kTopic, Schema.STRING_SCHEMA, key, Schema.STRING_SCHEMA, msg));
 	    	});
 
-		log.debug("records: " + Integer.toString(records.size())
-				+ ", sc active: " + Boolean.toString(sc.feedActiveStatus()));
+		log.trace("records: " + Integer.toString(records.size())
+				+ ", sc active: " + Boolean.toString(feed.feedActiveStatus()));
 
 		return records;
 	}
 
 	@Override
 	public void stop() {
-		log.debug("stopping...");
+		log.trace("stopping...");
 		try {
-			sc.stop();
+			feed.terminate();
 			log.debug("stopped...");
 		} catch (InterruptedException e) {
 			log.error("Error while stopping", e);

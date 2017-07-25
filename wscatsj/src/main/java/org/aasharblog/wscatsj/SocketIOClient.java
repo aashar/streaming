@@ -17,17 +17,20 @@ public class SocketIOClient extends MarketDataFeed {
 	private static final Logger log = LoggerFactory.getLogger(SocketIOClient.class);
 
 	final Socket socket;
-	int queueSize = 1000;
-	String[] subSyms = {"snap","amzn","googl", "fb","aig+"};
+	String[] subSyms;
 
     private final BlockingQueue<String> queue;
 
 	public SocketIOClient(String wsUri, int zmqPort, int queueSize, String subSyms) throws Exception {
 		super(zmqPort);
-		this.queueSize = queueSize;
 		this.subSyms = subSyms.split(",");
 
-		log.info("socket.io uri: " + wsUri);
+		log.info("Starting SocketIOClient with" +
+				"\n\tURI " + wsUri +
+				"\n\tsubSyms " + subSyms +
+				"\n\tqueueSize " + Integer.toString(queueSize) +
+				"\n\tzmqPort " + Integer.toString(zmqPort)
+		);
 
 		queue = new ArrayBlockingQueue<String>(queueSize);
 
@@ -37,19 +40,24 @@ public class SocketIOClient extends MarketDataFeed {
 		  .on(Socket.EVENT_CONNECT, new ConnectListener())
 		  .on(Socket.EVENT_MESSAGE, new MessageListener());
 	}
-
+	
 	@Override
-	public void start() {
+	public void connect() {
 		socket.connect();
-		log.debug("Socket connect command complete");
+		log.trace("Socket connect command complete");
+	}
+	
+	@Override
+	public void disconnect() {
+		socket.disconnect();
+		log.trace("Socket disconnect command complete");
 	}
 
 	@Override
-	public void stop() {
+	public void terminate() {
 		socket.disconnect();
 		try {
-			super.stop();
-			log.debug("Socket disconnect command complete");
+			super.terminate();
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			log.error("Failed to stop market data listener", e);
@@ -58,11 +66,13 @@ public class SocketIOClient extends MarketDataFeed {
 
 	@Override
 	public void subscribe(String... symbols) {
+		log.trace("Subscribing " + String.join(",", symbols));
 		socket.emit("subscribe", String.join(",", symbols));
 	}
 
 	@Override
 	public void unsubscribe(String... symbols) {
+		log.trace("Unsubscribing " + String.join(",", symbols));
 		socket.emit("unsubscribe", String.join(",", symbols));
 	}
 
@@ -74,7 +84,7 @@ public class SocketIOClient extends MarketDataFeed {
 	public class ConnectListener implements Emitter.Listener {
 		@Override
 		public void call(Object... args) {
-			log.debug("Socket connected");
+			log.trace("Socket connected");
 			subscribe(subSyms);
 		}
 	}
@@ -85,12 +95,15 @@ public class SocketIOClient extends MarketDataFeed {
 			Arrays
 				.asList(args)
 				.stream()
-				.forEachOrdered(quote -> queue.offer((String)quote));
+				.forEachOrdered(quote -> {
+					log.debug("Received " + quote);
+					queue.offer((String)quote);
+				});
 		}
 	}
 
 	public List<String> poll() {
-		log.debug("polling...");
+		log.trace("polling...");
 
 		List<String> retList = new ArrayList<String>();
 		if (queue.size() == 0) {
@@ -99,7 +112,7 @@ public class SocketIOClient extends MarketDataFeed {
 				"\"lastSalePrice\":111.76,\"lastSaleSize\":5,\"lastSaleTime\":1480446905681," +
 				"\"lastUpdated\":1480446910557}"); // for testing
 */			try {
-				log.debug("No messages, waiting for a second");
+				log.trace("No messages, waiting for a second");
 				Thread.sleep(1000);
 			} catch (InterruptedException e) {
 			}
